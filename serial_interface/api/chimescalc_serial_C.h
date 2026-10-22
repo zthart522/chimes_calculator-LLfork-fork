@@ -16,6 +16,10 @@ void init_chimes_serial(char *param_file, int *rank);
 void init_chimes_serial_instance(void *handle, char *param_file, int rank);
 void calculate_chimes(int natom, double *xc, double *yc, double *zc, char *atom_types[], double ca[3], double cb[3], double cc[3], double *energy, double fx[], double fy[], double fz[], double stress[9]); 
 void calculate_chimes_instance(void *handle, int natom, double *xc, double *yc, double *zc, char *atom_types[], double ca[3], double cb[3], double cc[3], double *energy, double fx[], double fy[], double fz[], double stress[9]); 
+
+void calculate_chimes_insertion(int natom, double *xc, double *yc, double *zc, char *atom_types[], char *inserted_type, double x_new, double y_new, double z_new, double ca[3], double cb[3], double cc[3], double *delta_energy, double fx[], double fy[], double fz[], double stress[9]);
+void calculate_chimes_insertion_instance(void *handle, int natom, double *xc, double *yc, double *zc, char *atom_types[], char *inserted_type, double x_new, double y_new, double z_new, double ca[3], double cb[3], double cc[3], double *delta_energy, double fx[], double fy[], double fz[], double stress[9]);
+
 #ifdef __cplusplus
 }
 #endif

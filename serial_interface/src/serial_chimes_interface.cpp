@@ -1131,3 +1131,216 @@ void serial_chimes_interface::calculate(vector<double> & x_in, vector<double> & 
 
 
 
+void serial_chimes_interface::calculate_insertion(
+    vector<double>& x_in,
+    vector<double>& y_in,
+    vector<double>& z_in,
+    vector<double>& cella_in,
+    vector<double>& cellb_in,
+    vector<double>& cellc_in,
+    vector<string>& atmtyps,
+    const string& inserted_type,
+    double x_new,
+    double y_new,
+    double z_new,
+    double& energy,
+    vector<vector<double>>& force,
+    vector<double>& stress)
+{
+
+    // Construct the trial configuration with the inserted atom last.
+
+    x_in.push_back(x_new);
+    y_in.push_back(y_new);
+    z_in.push_back(z_new);
+    atmtyps.push_back(inserted_type);
+
+    const int inserted_particle = static_cast<int>(atmtyps.size()) - 1;
+
+    // Read system, set up lattice constants/hmats
+
+    // Determine the max outer cutoff (MUST be 2-body, based on ChIMES logic)
+
+    // Initialize private members (LEF)
+    max_2b_cut = max_cutoff_2B(true) ;
+    max_3b_cut = max_cutoff_3B(true) ;
+    max_4b_cut = max_cutoff_4B(true) ;
+
+    vector<double> stress_chimes(6,0.0) ; // Switch Chimes to a packed stressed tensor.
+    
+    sys.init(atmtyps, x_in, y_in, z_in, cella_in, cellb_in, cellc_in, max_2b_cut, allow_replication);   
+    
+    sys.build_layered_system(atmtyps,poly_orders, max_2b_cut, max_3b_cut, max_4b_cut);
+
+    sys.set_atomtyp_indices(type_list);
+    
+    sys.run_checks({max_2b_cut,max_3b_cut,max_4b_cut},poly_orders);
+
+    build_neigh_lists(atmtyps, x_in, y_in, z_in, cella_in, cellb_in, cellc_in);
+
+    
+    // Setup vars
+    
+    int ii, jj, kk, ll;
+    
+    vector<double> force_4b(4*CHDIM) ;
+    vector<double> force_3b(3*CHDIM) ;
+    vector<double> force_2b(2*CHDIM) ;
+    chimes2BTmp chimes_2btmp(poly_orders[0]) ;
+    chimes3BTmp chimes_3btmp(poly_orders[1]) ;
+    chimes4BTmp chimes_4btmp(poly_orders[2]) ;      
+    
+    // Find indices of inserted particle
+
+
+    ////////////////////////
+    // interate over 2b's 
+    ////////////////////////
+
+    for(int i=0; i<sys.n_atoms; i++)
+    {
+        if (sys.sys_parent[i] != inserted_particle)
+            continue;
+        compute_1B(sys.sys_atmtyp_indices[i], energy);
+    }
+
+    for(int i=0; i<sys.n_atoms; i++)
+    {
+        for(int j=0; j<neighlist_2b[i].size(); j++) // Neighbors of i
+        {
+            jj = neighlist_2b[i][j];
+
+            if (sys.sys_parent[i] != inserted_particle && sys.sys_parent[jj] != inserted_particle)
+                continue;
+
+            dist = sys.get_dist(i,jj,dr); // Populates dr, which is passed by ref (overloaded)
+            
+            typ_idxs_2b[0] = sys.sys_atmtyp_indices[i ];
+            typ_idxs_2b[1] = sys.sys_atmtyp_indices[jj];
+            
+            for (int idx=0; idx<2*CHDIM; idx++) {
+                force_2b[idx] = 0.0 ;
+            }
+            
+            compute_2B(dist, dr, typ_idxs_2b, force_2b, stress_chimes, energy, chimes_2btmp);
+
+            for (int idx=0; idx<3; idx++)
+            {
+                force[sys.sys_rep_parent[i]][idx]                  += force_2b[0*CHDIM+idx] ;
+                force[sys.sys_rep_parent[sys.sys_parent[jj]]][idx] += force_2b[1*CHDIM+idx] ;     
+            }
+        }
+    }
+    
+    ////////////////////////
+    // interate over 3b's 
+    ////////////////////////
+    
+    if (poly_orders[1] > 0 )
+    {
+        for(int i=0; i<neighlist_3b.size(); i++)
+        {
+            ii = neighlist_3b[i][0];
+            jj = neighlist_3b[i][1];
+            kk = neighlist_3b[i][2];
+
+            if (sys.sys_parent[ii] != inserted_particle && sys.sys_parent[jj] != inserted_particle && sys.sys_parent[kk] != inserted_particle)
+                continue;
+        
+            dist_3b[0] = sys.get_dist(ii,jj,&dr_3b[0]); 
+            dist_3b[1] = sys.get_dist(ii,kk,&dr_3b[3]); 
+            dist_3b[2] = sys.get_dist(jj,kk,&dr_3b[6]); 
+        
+            typ_idxs_3b[0] = sys.sys_atmtyp_indices[ii];
+            typ_idxs_3b[1] = sys.sys_atmtyp_indices[jj];
+            typ_idxs_3b[2] = sys.sys_atmtyp_indices[kk];
+        
+            for (int idx=0; idx<3*CHDIM; idx++)
+            {
+                force_3b[idx] = 0.0 ;               
+            }    
+        
+            compute_3B(dist_3b, dr_3b, typ_idxs_3b, force_3b, stress_chimes, energy, chimes_3btmp);
+
+            for (int idx=0; idx<3; idx++) {
+                force[sys.sys_rep_parent[sys.sys_parent[ii]]][idx] += force_3b[0*CHDIM+idx] ;
+                force[sys.sys_rep_parent[sys.sys_parent[jj]]][idx] += force_3b[1*CHDIM+idx] ;
+                force[sys.sys_rep_parent[sys.sys_parent[kk]]][idx] += force_3b[2*CHDIM+idx] ;
+            }
+        }
+    }
+
+    ////////////////////////
+    // interate over 4b's 
+    ////////////////////////
+
+    if (poly_orders[2] > 0 )
+    {
+        for(int i=0; i<neighlist_4b.size(); i++)
+        {
+            ii = neighlist_4b[i][0];
+            jj = neighlist_4b[i][1];
+            kk = neighlist_4b[i][2];
+            ll = neighlist_4b[i][3];
+
+            if (sys.sys_parent[ii] != inserted_particle && sys.sys_parent[jj] != inserted_particle && sys.sys_parent[kk] != inserted_particle && sys.sys_parent[ll] != inserted_particle)
+                continue;
+        
+            dist_4b[0] = sys.get_dist(ii,jj,&dr_4b[0*CHDIM]); 
+            dist_4b[1] = sys.get_dist(ii,kk,&dr_4b[1*CHDIM]); 
+            dist_4b[2] = sys.get_dist(ii,ll,&dr_4b[2*CHDIM]); 
+            dist_4b[3] = sys.get_dist(jj,kk,&dr_4b[3*CHDIM]); 
+            dist_4b[4] = sys.get_dist(jj,ll,&dr_4b[4*CHDIM]); 
+            dist_4b[5] = sys.get_dist(kk,ll,&dr_4b[5*CHDIM]);         
+
+            typ_idxs_4b[0] = sys.sys_atmtyp_indices[ii];
+            typ_idxs_4b[1] = sys.sys_atmtyp_indices[jj];
+            typ_idxs_4b[2] = sys.sys_atmtyp_indices[kk];
+            typ_idxs_4b[3] = sys.sys_atmtyp_indices[ll];        
+        
+            for (int idx=0; idx<4*CHDIM; idx++)
+            {
+                force_4b[idx] = 0.0 ;
+            }    
+        
+            compute_4B(dist_4b, dr_4b, typ_idxs_4b, force_4b, stress_chimes, energy, chimes_4btmp);
+
+            for (int idx=0; idx<3; idx++)
+            {
+                force[sys.sys_rep_parent[sys.sys_parent[ii]]][idx] += force_4b[0*CHDIM+idx] ;
+                force[sys.sys_rep_parent[sys.sys_parent[jj]]][idx] += force_4b[1*CHDIM+idx] ;
+                force[sys.sys_rep_parent[sys.sys_parent[kk]]][idx] += force_4b[2*CHDIM+idx] ;
+                force[sys.sys_rep_parent[sys.sys_parent[ll]]][idx] += force_4b[3*CHDIM+idx] ;
+            }    
+        }    
+    }
+
+    // Correct for use of replicates, if applicable
+    
+    energy /= pow(sys.n_replicates+1.0,3.0);
+
+    ////////////////////////
+    // Finish pressure calculation
+    ////////////////////////
+
+    // Chimes calculates only unique elements of stress tensor.
+    stress[0] = stress_chimes[0] ; // xx
+    stress[1] = stress_chimes[1] ; // xy
+    stress[2] = stress_chimes[2] ; // xz
+    stress[3] = stress_chimes[1] ; // yx
+    stress[4] = stress_chimes[3] ; // yy
+    stress[5] = stress_chimes[4] ; // yz
+    stress[6] = stress_chimes[2] ; // zx
+    stress[7] = stress_chimes[4] ; // zy
+    stress[8] = stress_chimes[5] ; // zz
+    
+    for (int idx=0; idx<9; idx++)
+        stress[idx] /= sys.vol;
+
+}
+
+
+
+
+
+

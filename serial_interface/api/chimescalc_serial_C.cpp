@@ -122,3 +122,94 @@ void calculate_chimes_instance(void *handle, int natom, double *xc, double *yc, 
     stress[i] = stress_vec[i];
   }
 }
+
+
+
+
+void calculate_insertion_chimes(
+    int natom,
+    double *xc, double *yc, double *zc,
+    char *atom_types[],
+    char *inserted_type,
+    double x_new, double y_new, double z_new,
+    double ca[3], double cb[3], double cc[3],
+    double *delta_energy,
+    double fx[], double fy[], double fz[],
+    double stress[9])
+{
+    calculate_chimes_insertion_instance(
+        chimes_ptr, natom,
+        xc, yc, zc, atom_types, inserted_type,
+        x_new, y_new, z_new,
+        ca, cb, cc,
+        delta_energy, fx, fy, fz, stress);
+}
+
+
+void calculate_chimes_insertion_instance(
+    void *handle,
+    int natom,
+    double *xc, double *yc, double *zc,
+    char *atom_types[],
+    char *inserted_type,
+    double x_new, double y_new, double z_new,
+    double ca[3], double cb[3], double cc[3],
+    double *delta_energy,
+    double fx[], double fy[], double fz[],
+    double stress[9])
+{
+    auto new_ptr = (serial_chimes_interface *) handle;
+
+    // Original coordinates and atom types.
+    vector<double> x_vec(natom);
+    vector<double> y_vec(natom);
+    vector<double> z_vec(natom);
+    vector<string> atom_types_vec(natom);
+
+    for (int i = 0; i < natom; ++i) {
+        x_vec[i] = xc[i];
+        y_vec[i] = yc[i];
+        z_vec[i] = zc[i];
+        atom_types_vec[i] = atom_types[i];
+    }
+
+    // Cell vectors.
+    vector<double> cell_a_vec(3);
+    vector<double> cell_b_vec(3);
+    vector<double> cell_c_vec(3);
+
+    for (int i = 0; i < 3; ++i) {
+        cell_a_vec[i] = ca[i];
+        cell_b_vec[i] = cb[i];
+        cell_c_vec[i] = cc[i];
+    }
+
+    // Output buffers: N existing atoms plus the inserted atom.
+    vector<vector<double>> delta_force(
+        natom + 1, vector<double>(3, 0.0));
+
+    vector<double> delta_stress(9, 0.0);
+    *delta_energy = 0.0;
+
+    // Evaluate the insertion.
+    new_ptr->calculate_insertion(
+        x_vec, y_vec, z_vec,
+        cell_a_vec, cell_b_vec, cell_c_vec,
+        atom_types_vec,
+        string(inserted_type),
+        x_new, y_new, z_new,
+        *delta_energy,
+        delta_force,
+        delta_stress);
+
+    // Copy all N+1 force vectors back to the C caller.
+    for (int i = 0; i < natom + 1; ++i) {
+        fx[i] = delta_force[i][0];
+        fy[i] = delta_force[i][1];
+        fz[i] = delta_force[i][2];
+    }
+
+    for (int i = 0; i < 9; ++i) {
+        stress[i] = delta_stress[i];
+    }
+}

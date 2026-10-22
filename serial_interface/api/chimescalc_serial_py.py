@@ -201,4 +201,84 @@ def calculate_chimes(natoms,xcrd,ycrd,zcrd,atmtyps,cell_a,cell_b,cell_c,energy,f
 	return in_fx, in_fy, in_fz, in_stress, in_energy.value
 
 
+def calculate_chimes_insertion_instance(chimes_ptr, natoms, xcrd, ycrd, zcrd, atmtyps,inserted_type, x_new, y_new, z_new,cell_a, cell_b, cell_c):
+
+        """
+        Computes the energy change, force changes, and stress change
+        associated with inserting one particle into an existing system.
+
+        Returns:
+            delta_fx, delta_fy, delta_fz: N+1 force components
+            delta_stress: 9-component stress difference
+            delta_energy: insertion energy difference
+        """
+
+        natoms_new = natoms + 1
+
+        # Encode atom types.
+        encoded = [atmtyps[i].encode() for i in range(natoms)]
+        in_atmtyps = (ctypes.c_char_p * natoms)(*encoded)
+        in_inserted_type = ctypes.c_char_p(inserted_type.encode())
+
+        # Existing coordinates.
+        in_xcrd = (ctypes.c_double * natoms)(*xcrd)
+        in_ycrd = (ctypes.c_double * natoms)(*ycrd)
+        in_zcrd = (ctypes.c_double * natoms)(*zcrd)
+
+        # Cell vectors.
+        in_cell_a = (ctypes.c_double * 3)(*cell_a)
+        in_cell_b = (ctypes.c_double * 3)(*cell_b)
+        in_cell_c = (ctypes.c_double * 3)(*cell_c)
+
+        # Insertion coordinates.
+        in_x_new = ctypes.c_double(x_new)
+        in_y_new = ctypes.c_double(y_new)
+        in_z_new = ctypes.c_double(z_new)
+
+        # Output buffers must hold N+1 atoms.
+        in_fx = (ctypes.c_double * natoms_new)(*[0.0] * natoms_new)
+        in_fy = (ctypes.c_double * natoms_new)(*[0.0] * natoms_new)
+        in_fz = (ctypes.c_double * natoms_new)(*[0.0] * natoms_new)
+
+        in_delta_energy = ctypes.c_double(0.0)
+        in_stress = (ctypes.c_double * 9)(*[0.0] * 9)
+
+        # Declare the C function signature.
+        func = chimes_wrapper.calculate_chimes_insertion_instance
+        func.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_char_p),
+            ctypes.c_char_p,
+            ctypes.c_double,
+            ctypes.c_double,
+            ctypes.c_double,
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+        ]
+        func.restype = None
+
+        func(
+            chimes_ptr,
+            ctypes.c_int(natoms),
+            in_xcrd, in_ycrd, in_zcrd,
+            in_atmtyps, in_inserted_type,
+            in_x_new, in_y_new, in_z_new,
+            in_cell_a, in_cell_b, in_cell_c,
+            ctypes.byref(in_delta_energy),
+            in_fx, in_fy, in_fz,
+            in_stress
+        )
+
+        return in_fx, in_fy, in_fz, in_stress, in_delta_energy.value
+
 

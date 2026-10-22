@@ -101,6 +101,9 @@ class serial_chimes_interface : public chimesFF
            
         void    init_chimesFF(string chimesFF_paramfile, int rank);
         void    calculate(vector<double> & x_in, vector<double> & y_in, vector<double> & z_in, vector<double> & cella_in, vector<double> & cellb_in, vector<double> & cellc_in, vector<string> & atmtyps, double & energy, vector<vector<double> > & force, vector<double> & stress);
+        
+        
+        void    calculate_insertion(vector<double>& x_in, vector<double>& y_in, vector<double>& z_in, vector<double>& cella_in, vector<double>& cellb_in, vector<double>& cellc_in, vector<string>& atmtyps, const string& inserted_type, double x_new, double y_new, double z_new, double& delta_energy, vector<vector<double>>& delta_force, vector<double>& delta_stress);
 
     private:
 
