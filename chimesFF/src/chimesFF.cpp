@@ -799,7 +799,7 @@ void chimesFF::read_parameters(string paramfile)
 
             if (rank == 0)
                 cout << "chimesFF: " << "Built the following 2-body pair \"fast\" map:" << endl;
-            
+
             atom_int_pair_map.resize((natmtyps-1)*natmtyps + (natmtyps-1) + 1); // Maximum possible pair value + a small buffer
             
 
@@ -2443,43 +2443,43 @@ vector<double> chimesFF::interpolateTricubic(int tripidx, double rij, double rik
 
 // Generic version
 
-double chimesFF::get_tab_3B(int tripidx, const string& pairtyp_ij, const string& pairtyp_ik, const string& pairtyp_jk,  double rij, double rik, double rjk, double (&force_scalar)[3]) 
+double chimesFF::get_tab_3B(int tripidx, const string& pairtyp_ij, const string& pairtyp_ik, const string& pairtyp_jk, double rij, double rik, double rjk, double (&force_scalar)[3]) 
 {
-    // auto t0 = chrono::high_resolution_clock::now();
+    // 1. Create a structure that holds the type, the distance, AND the original index
+    struct PairInfo {
+        string type;
+        double dist;
+        int original_idx;
+    };
 
-    // Determine the pair types (e.g., CO, CO, CC)
+    array<PairInfo, 3> pairs = {{
+        {pairtyp_ij, rij, 0},
+        {pairtyp_ik, rik, 1},
+        {pairtyp_jk, rjk, 2}
+    }};
 
-    array<string, 3> pair_types = {pairtyp_ij, pairtyp_ik, pairtyp_jk};
-    
-    // Store the corresponding distances
-    
-    array<double, 3> pair_dists = {rij, rik, rjk};
-    
-    // Create a vector of pairs
-    array<pair<string, double>, 3> pairs;
-    for (int i = 0; i < 3; ++i) {
-        pairs[i] = {pair_types[i], pair_dists[i]};
-    }
-    
-    // Sort the vector of pairs using the custom comparator
+    // 2. Sort the pairs (using your custom comparator logic)
+    // Example: sorting alphabetically by pair type string
+    std::sort(pairs.begin(), pairs.end(), [](const PairInfo& a, const PairInfo& b) {
+        return a.type < b.type; 
+    });
 
-    // Extract the sorted pair_type and pair_dist vectors
-    for (int i = 0; i < 3; ++i) {
-        pair_types[i] = pairs[i].first;
-        pair_dists[i] = pairs[i].second;
-    }
+    // 3. Perform interpolation using the SORTED distances
+    auto results = interpolateTricubic(tripidx, 
+                                      pairs[0].dist, 
+                                      pairs[1].dist, 
+                                      pairs[2].dist, 
+                                      tab_e_3B[tripidx], 
+                                      tab_f_ij_3B[tripidx], 
+                                      tab_f_ik_3B[tripidx], 
+                                      tab_f_jk_3B[tripidx]);
 
-    // coupled interpolation code
-    // auto t1 = chrono::high_resolution_clock::now();
-    auto results = interpolateTricubic(tripidx, pair_dists[0], pair_dists[1], pair_dists[2], tab_e_3B[tripidx], tab_f_ij_3B[tripidx], tab_f_ik_3B[tripidx], tab_f_jk_3B[tripidx]);
-    // auto t2 = chrono::high_resolution_clock::now();
-    force_scalar[0] = results[1];
-    force_scalar[1] = results[2];
-    force_scalar[2] = results[3];
-    // auto t3 = chrono::high_resolution_clock::now();
-    // cout << chrono::duration_cast<chrono::nanoseconds>(t1-t0).count() << " before \n";
-    // cout << chrono::duration_cast<chrono::nanoseconds>(t2-t1).count() << " during \n";
-    // cout << chrono::duration_cast<chrono::nanoseconds>(t3-t2).count() << " after \n";
+    // 4. Map the derivatives back to the PHYSICAL indices
+    // results[1] is dE/d(pairs[0].dist), results[2] is dE/d(pairs[1].dist), etc.
+    force_scalar[pairs[0].original_idx] = results[1];
+    force_scalar[pairs[1].original_idx] = results[2];
+    force_scalar[pairs[2].original_idx] = results[3];
+
     return results[0]; // output energy
 }
 // energy version

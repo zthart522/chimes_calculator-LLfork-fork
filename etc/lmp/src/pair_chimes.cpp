@@ -72,6 +72,8 @@ PairCHIMES::PairCHIMES(LAMMPS *lmp) : Pair(lmp)
 	
 	chimes_calculator.init(me);  
     for_fitting = false;
+	params_loaded = false;
+	allowed = nullptr;
 #ifdef FINGERPRINT
     fingerprint = false;
 #endif
@@ -116,6 +118,7 @@ PairCHIMES::~PairCHIMES()
 	{   	    
 	    memory->destroy(setflag);
 	    memory->destroy(cutsq);
+		memory->destroy(allowed);
 	}
     
     if (badness_stream.is_open())
@@ -175,6 +178,7 @@ void PairCHIMES::settings(int narg, char **arg)
 	return;	
 }
 
+
 void PairCHIMES::coeff(int narg, char **arg)
 {
 	// Expect: pair_coeff * * <parameter file name>
@@ -182,15 +186,23 @@ void PairCHIMES::coeff(int narg, char **arg)
 	if (narg != 3) 
 		error -> all(FLERR,"Illegal pair_style command. Expects \"pair_coeff * * <parameter file name>\" ");
 	
-	chimesFF_paramfile = arg[2]; 
+	int ilo, ihi, jlo, jhi;
+  	utils::bounds(FLERR, arg[0], 1, atom->ntypes, ilo, ihi, error);
+  	utils::bounds(FLERR, arg[1], 1, atom->ntypes, jlo, jhi, error);
 	
-	chimes_calculator.read_parameters(chimesFF_paramfile);
-
-	set_chimes_type();
-    
-    //chimes_calculator.set_atomtypes(chimes_type);
-    chimes_calculator.build_pair_int_trip_map() ; 
-    chimes_calculator.build_pair_int_quad_map() ;
+	if (!params_loaded) {                    // fixes your duplicate-parse error
+		chimesFF_paramfile = utils::strdup(arg[2]);
+		chimes_calculator.read_parameters(chimesFF_paramfile);
+		set_chimes_type();
+		chimes_calculator.build_pair_int_trip_map();
+		chimes_calculator.build_pair_int_quad_map();
+		maxcut_3b = chimes_calculator.max_cutoff_3B();
+		maxcut_4b = chimes_calculator.max_cutoff_4B();
+		params_loaded = true;
+	}
+	else if (strcmp(chimesFF_paramfile, arg[2]) != 0)
+    	error->all(FLERR, "All pair_coeff lines for one chimesFF instance must use the same parameter file");
+	
 
 	// Set special LAMMPS flags/cutoffs
 	
@@ -200,12 +212,17 @@ void PairCHIMES::coeff(int narg, char **arg)
 	vector<vector<double> > cutoff_2b;
 	chimes_calculator.get_cutoff_2B(cutoff_2b);
 
-	for(int i=1; i<=atom->ntypes; i++)
+	int count = 0;
+	for(int i=ilo; i<=ihi; i++)
 	{
-		for(int j=i; j<=atom->ntypes; j++)
+		for(int j=jlo; j<=jhi; j++)
 		{
+
 			setflag[i][j] = 1;
 			setflag[j][i] = 1;
+
+			allowed[i][j] = 1;
+			allowed[j][i] = 1;
 			
 			cutsq[i][j]  = cutoff_2b[ chimes_calculator.get_atom_pair_index( chimes_type[i-1]*chimes_calculator.natmtyps + chimes_type[j-1] ) ][1];
 			cutsq[i][j] *= cutsq[i][j];
@@ -214,11 +231,17 @@ void PairCHIMES::coeff(int narg, char **arg)
 			{
 				cutsq[j][i]  = cutoff_2b[ chimes_calculator.get_atom_pair_index( chimes_type[j-1]*chimes_calculator.natmtyps + chimes_type[i-1]) ][1];
 				cutsq[j][i] *= cutsq[j][i];
-			}			
+			}
+			
+			count++;
 		}
 	}
 
-	maxcut_3b = chimes_calculator.max_cutoff_3B();
+	if (count == 0)
+		error->all(FLERR, "Incorrect args for pair coefficients");
+
+
+	// maxcut_3b = chimes_calculator.max_cutoff_3B();
 	// if (maxcut_3b==0.0 && fingerprint){
 	// 	double max_val = 20;
 	// 	for (const auto& row : cutoff_2b) {
@@ -230,7 +253,7 @@ void PairCHIMES::coeff(int narg, char **arg)
 	// 	}
 	// 	maxcut_3b=max_val;
 	// }
-	maxcut_4b = chimes_calculator.max_cutoff_4B();
+	// maxcut_4b = chimes_calculator.max_cutoff_4B();
 	// if (maxcut_4b==0.0 && fingerprint){maxcut_4b=maxcut_3b;}
 }
 void writeClusterDataComp(const string& filename, const vector<vector<double>>& data) 
@@ -258,14 +281,20 @@ void writeClusterDataComp(const string& filename, const vector<vector<double>>& 
 void PairCHIMES::allocate()
 {
 	allocated = 1;
-	
-	memory->create(setflag,atom->ntypes+1,atom->ntypes+1,"pair:setflag");
-	
-	for(int i=1; i<=atom->ntypes; i++)
-		for(int j=i; j<=atom->ntypes; j++)
+	int n = atom->ntypes;
+
+	memory->create(setflag, n+1, n+1, "pair:setflag");
+
+	for (int i = 1; i <= n; i++)
+		for (int j = i; j <= n; j++)
 			setflag[i][j] = 0;
 
-	memory->create(cutsq,atom->ntypes+1,atom->ntypes+1,"pair:cutsq");
+	memory->create(cutsq, n+1, n+1, "pair:cutsq");
+
+	memory->create(allowed, n+1, n+1, "pair:allowed");
+	for (int i = 0; i <= n; i++)
+		for (int j = 0; j <= n; j++)
+			allowed[i][j] = 0;
 }	
 
 void PairCHIMES::init_style()

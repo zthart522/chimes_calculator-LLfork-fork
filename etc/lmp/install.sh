@@ -116,8 +116,17 @@ fi
 cd build/${lammps}/src
 make yes-manybody
 make yes-extra-pair
+make yes-PLUMED
+
+# ---NEW STUFF FOR PLUMED !! --- #
+# --- PLUMED NEEDS TO KNOW WHERE ITS BEEN INSTALLED ---
+cd ../lib/plumed/
+python Install.py -p /work2/11346/zthart/stampede3/sw/plumed2-install -m shared
+cd ../../src/
+# ^^^ NEW STUFF FOR PLUMED !! ^^^ #
+
 make -j 4 mpi_chimes
-cd -
+cd ../../..
 
 # Compile fingerprint executable if flag true
 

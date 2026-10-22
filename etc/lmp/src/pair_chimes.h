@@ -64,6 +64,9 @@ namespace LAMMPS_NS
 			
 			double maxcut_3b;
 			double maxcut_4b;
+
+			bool params_loaded;
+			int **allowed;
 				
 			int n_3mers;				   // number of neighborlist_Xmers entries
 			int n_4mers;
