@@ -99,3 +99,50 @@ for i in range(len(generated_files)):
     
     energystream.close()
     forcestream .close()
+
+# Write new parameter file if name is specified
+if len(sys.argv) == 2:
+    
+    # Check that params are not being overwritten, then write to files
+    if os.path.realpath(config.PARAM_FILE) == os.path.realpath(sys.argv[1]):
+        print("\nERROR: Overriding parameter file in config.py is not allowed.")
+        print("Rerun script with different tabulated parameter filename or paste lines manually.\n")
+        sys.exit(1)
+
+    # Open original params and tabulated version
+    paramstream = open(config.PARAM_FILE,'r')
+    tabstream   = open(sys.argv[1],'w')
+        
+    # Adjust 2B lines (PAIRTYPE PARAMS: {index} {E1} {E2})
+    generated_files = glob.glob("chimes_scan_2b.type_*dat")
+    for i in range(len(generated_files)):
+        infile        = generated_files[i]
+        index         = infile.split("type_")[1].split(".dat")[0]
+
+        for line in paramstream:
+            if line.strip().split(":")[0] == "PAIRTYPE PARAMS" and index == line.strip().split()[2]:
+                tabstream.write(line.rstrip("\n") + f" TABULATED /{infile}\n")
+                break
+            else:
+                tabstream.write(line)
+            
+    # Adjust 3B lines (INDEX: {index} ATOMS: {E1} {E2} {E3})
+    generated_files = glob.glob("chimes_scan_3b.type_*dat")
+    for i in range(len(generated_files)):
+        infile        = generated_files[i]
+        index         = infile.split("type_")[1].split(".dat")[0]
+
+        for line in paramstream:
+            print(line.strip().split(":")[0])
+            if line.strip().split(":")[0] == "INDEX" and "ATOMS" in line.strip().split(":")[1] and index == line.strip().split()[1]:
+                tabstream.write(line.rstrip("\n") + f" TABULATED /{infile}\n")
+                break
+            else:
+                tabstream.write(line)
+
+    # Finish writing to the end of the file
+    for line in paramstream:
+        tabstream.write(line)
+
+    paramstream.close()
+    tabstream.close()
