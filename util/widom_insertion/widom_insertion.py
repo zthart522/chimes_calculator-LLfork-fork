@@ -10,17 +10,24 @@ import sys
 import time
 import multiprocessing as mp
 from multiprocessing import util as mp_util
+from pathlib import Path
 
 import numpy as np
 
-sys.path.append(os.path.normpath(os.getcwd()))
+from pathlib import Path
+import importlib.util
 
-if not os.path.exists("config.py"):
-    print("Error: Cannot find config file")
-    print("       Searched for: config.py in the current directory")
-    exit(0)
+config_path = Path.cwd() / "config.py"
 
-import config
+if not config_path.is_file():
+    raise FileNotFoundError(f"Cannot find config file: {config_path}")
+
+spec = importlib.util.spec_from_file_location("widom_config", config_path)
+config = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(config)
+
+print("Loaded config:", config_path.resolve())
+print("TRAJ_FILE:", repr(config.TRAJ_FILE))
 
 # The instance-based wrapper lives in serial_interface/api (not chimesFF/api)
 api_dir = config.CHMS_REPO + "/serial_interface/api"
@@ -58,7 +65,7 @@ BETA = 1.0 / (KB * TEMPERATURE)
 INSERTED_TYPE = "C"
 SEED = config.SEED
 N_WIDOM = config.N_WIDOM                # insertions PER FRAME
-SIGMA = 0.45                            # used for BOTH Z and the sampler
+SIGMA = 0.90                            # used for BOTH Z and the sampler
 N_Z_SAMPLES = 100000
 Z_CHUNK = 10000                         # chunk size to limit memory in compute_Z
 
@@ -142,6 +149,26 @@ def sample_uniform_excluding_atoms(
         if rng.random() < f:
             p_raw = f / V
             return r, p_raw
+
+def sample_uniform(
+    x, y, z, cell_a, cell_b, cell_c, rng
+):
+    """
+    Sample a position uniformly in the periodic cell.
+    Assumes an orthogonal, axis-aligned periodic cell with origin (0,0,0).
+
+    Returns
+    -------
+    r : ndarray, shape (3,)
+        Sampled position.
+    p : float
+        Normalized proposal density, exactly 1/V.
+    """
+    _, box, V = _prepare_frame(x, y, z, cell_a, cell_b, cell_c)
+
+    r = rng.random(3) * box
+    p = 1.0 / V
+    return r, p
 
 
 def read_xyz(path, frame=None, skip=1):
@@ -278,7 +305,7 @@ def _init_worker(lib_path, param_file):
     global _chimes_ptr
     wrapper_py.chimes_wrapper = wrapper_py.init_chimes_wrapper(lib_path)
     _chimes_ptr = wrapper_py.chimes_open_instance()
-    wrapper_py.set_chimes_instance(_chimes_ptr, small=True)
+    wrapper_py.set_chimes_instance(_chimes_ptr, small=False)
     wrapper_py.init_chimes_instance(_chimes_ptr, param_file, rank=0)
 
     # Pool workers are usually terminated rather than exited normally,
@@ -310,8 +337,11 @@ def process_frame(task):
     lines = []
 
     for i in range(N_WIDOM):
-        r_new, q_sampled = sample_uniform_excluding_atoms(
-            x, y, z, cell_a, cell_b, cell_c, rng, sigma=SIGMA
+        # r_new, q_sampled = sample_uniform_excluding_atoms(
+        #     x, y, z, cell_a, cell_b, cell_c, rng, sigma=SIGMA
+        # )
+        r_new, q_sampled = sample_uniform(
+            x, y, z, cell_a, cell_b, cell_c, rng
         )
         x_new, y_new, z_new = r_new
 
@@ -357,7 +387,8 @@ def main():
     # -----------------------------------------------------
     # Convert trajectory and read frames
     # -----------------------------------------------------
-    os.system(f"python3 {config.CHMS_REPO}/util/widom_insertion/src/lmp2xyz.py {config.TRAJ_FILE} widom_traj.xyz")
+
+    os.system(f"python3 {config.CHMS_REPO}/util/widom_insertion/lmp2xyz.py {config.TRAJ_FILE} widom_traj.xyz")
 
     max_frames = getattr(config, "MAX_FRAMES", None)
     frames = read_xyz('widom_traj.xyz', frame=max_frames, skip=config.FRAME_SKIP)
