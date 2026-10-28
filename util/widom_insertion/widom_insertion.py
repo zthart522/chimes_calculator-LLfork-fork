@@ -11,6 +11,7 @@ import time
 import multiprocessing as mp
 from multiprocessing import util as mp_util
 from pathlib import Path
+from functools import partial
 
 import numpy as np
 
@@ -63,6 +64,7 @@ KB = 8.617333262e-5 * 23.06            # kcal/mol/K; must match CHIMES energy un
 BETA = 1.0 / (KB * TEMPERATURE)
 
 INSERTED_TYPE = "C"
+DISTRIBUTION = config.DISTRIBUTION
 SEED = config.SEED
 N_WIDOM = config.N_WIDOM                # insertions PER FRAME
 SIGMA = 0.90                            # used for BOTH Z and the sampler
@@ -313,7 +315,7 @@ def _init_worker(lib_path, param_file):
     mp_util.Finalize(None, _close_worker_chimes, exitpriority=10)
 
 
-def process_frame(task):
+def process_frame(task, distribution):
     """
     Run all Widom insertions for one frame.
     Returns (iframe, weights, text_block, Z, secs), where text_block holds
@@ -336,13 +338,27 @@ def process_frame(task):
     weights = np.empty(N_WIDOM, dtype=float)
     lines = []
 
+    if distribution == "GAUSSIAN":
+        get_sample = sample_uniform_excluding_atoms
+        extra_args = {"sigma": SIGMA}
+    elif distribution == "UNIFORM":
+        get_sample = sample_uniform
+        extra_args = {}
+    else:
+        raise ValueError(f"Unknown distribution type, got {distribution}")
+
     for i in range(N_WIDOM):
+
+        r_new, q_sampled = get_sample(
+            x, y, z, cell_a, cell_b, cell_c, rng,
+            **extra_args
+        )
         # r_new, q_sampled = sample_uniform_excluding_atoms(
         #     x, y, z, cell_a, cell_b, cell_c, rng, sigma=SIGMA
         # )
-        r_new, q_sampled = sample_uniform(
-            x, y, z, cell_a, cell_b, cell_c, rng
-        )
+        # r_new, q_sampled = sample_uniform(
+        #     x, y, z, cell_a, cell_b, cell_c, rng
+        # )
         x_new, y_new, z_new = r_new
 
         result = wrapper_py.calculate_chimes_insertion_instance(
@@ -432,8 +448,9 @@ def main():
                      initializer=_init_worker,
                      initargs=(LIB_PATH, PARAM_FILE)) as pool:
 
+            worker = partial(process_frame, distribution=DISTRIBUTION)
             for iframe, weights, text, Z, secs in pool.imap_unordered(
-                    process_frame, tasks, chunksize=1):
+                    worker, tasks, chunksize=1):
 
                 per_frame_weights[iframe] = weights
                 avg = np.mean(weights)
